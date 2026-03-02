@@ -521,6 +521,50 @@ async def leave_room(code: str, req: LeaveRequest):
 
 
 # ---------------------------------------------------------------------------
+# Kick endpoint
+# ---------------------------------------------------------------------------
+
+
+class KickRequest(BaseModel):
+    owner_username: str
+    username: str
+
+
+@app.post("/rooms/{code}/kick", response_model=PlayerResponse)
+async def kick_player(code: str, req: KickRequest):
+    """Owner removes a player from the active table."""
+    async with SessionLocal() as session:
+        room = await _get_room(session, code)
+        if room.owner_username != req.owner_username:
+            raise HTTPException(status_code=403, detail="Only the room owner can kick players")
+
+        if req.username == room.owner_username:
+            raise HTTPException(status_code=400, detail="Cannot kick the room owner")
+
+        result = await session.execute(
+            select(PlayerModel).where(
+                PlayerModel.room_id == room.id,
+                PlayerModel.username == req.username,
+            )
+        )
+        player = result.scalar_one_or_none()
+        if not player:
+            raise HTTPException(status_code=404, detail="Player not found in this room")
+
+        player.is_active = False
+        await session.commit()
+        await session.refresh(player)
+
+        return PlayerResponse(
+            username=player.username,
+            initial_balance=player.initial_balance,
+            current_balance=player.current_balance,
+            position=player.position,
+            is_active=player.is_active,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Buy-in adjustment endpoint
 # ---------------------------------------------------------------------------
 
@@ -529,14 +573,15 @@ class AdjustBuyInRequest(BaseModel):
     owner_username: str
     username: str
     amount: float  # positive = add chips, negative = remove chips
+    adjust_buy_in: bool = True  # if False, only changes current_balance (not buy-in)
 
 
 @app.post("/rooms/{code}/buy-in", response_model=PlayerResponse)
 async def adjust_buy_in(code: str, req: AdjustBuyInRequest):
     """Owner adds or removes chips from a player's stack.
 
-    Positive amount: adds to both initial_balance (buy-in) and current_balance.
-    Negative amount: subtracts from both. Current balance cannot go below 0.
+    If adjust_buy_in is True (default): changes both initial_balance and current_balance.
+    If adjust_buy_in is False: only changes current_balance (e.g. corrections).
     """
     async with SessionLocal() as session:
         room = await _get_room(session, code)
@@ -559,7 +604,8 @@ async def adjust_buy_in(code: str, req: AdjustBuyInRequest):
                 detail=f"Cannot remove {abs(req.amount)} — player only has {player.current_balance} in current balance",
             )
 
-        player.initial_balance += req.amount
+        if req.adjust_buy_in:
+            player.initial_balance += req.amount
         player.current_balance += req.amount
 
         await session.commit()
@@ -1115,7 +1161,9 @@ async def _resolve_transfer(code: str, transfer_id: int, owner_username: str, *,
                 raise HTTPException(status_code=400, detail="Sender has insufficient balance")
 
             sender.current_balance -= transfer.amount
+            sender.initial_balance -= transfer.amount
             receiver.current_balance += transfer.amount
+            receiver.initial_balance += transfer.amount
             transfer.status = "approved"
         else:
             transfer.status = "rejected"

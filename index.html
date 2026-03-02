@@ -414,6 +414,28 @@
   }
   .toast.error { border-left-color: var(--danger); }
 
+  /* --- Accounts --- */
+  .account-row {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .account-row.inactive { opacity: 0.55; }
+  .account-info { flex: 1; min-width: 0; }
+  .account-name { font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  .account-details { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .account-net { text-align: right; flex-shrink: 0; }
+  .account-net .net-val { font-weight: 700; font-size: 1.1em; }
+  .account-net .net-val.positive { color: var(--green); }
+  .account-net .net-val.negative { color: var(--danger); }
+  .account-net .net-val.zero { color: var(--muted); }
+  .account-net .net-lbl { font-size: 11px; color: var(--muted); }
+  .account-reinstate { margin-top: 6px; }
+
   /* --- Desktop tweaks --- */
   @media (min-width: 600px) {
     .modal {
@@ -478,6 +500,7 @@
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('tab-game')">Game</button>
     <button class="tab-btn" onclick="switchTab('tab-transfers')">Transfers</button>
+    <button class="tab-btn" onclick="switchTab('tab-accounts')" id="accounts-tab-btn" style="display:none">Accounts</button>
     <button class="tab-btn" onclick="switchTab('tab-owner')" id="owner-tab-btn" style="display:none">Owner</button>
   </div>
 
@@ -563,6 +586,15 @@
       </div>
     </div>
 
+    <!-- ========== ACCOUNTS TAB ========== -->
+    <div class="tab-content" id="tab-accounts">
+      <div class="section">
+        <div class="section-title">All Accounts</div>
+        <p style="color:var(--muted); font-size:13px; margin-bottom:14px">Every player who has been in this room. Use this to settle up at the end of the night.</p>
+        <div id="accounts-list"></div>
+      </div>
+    </div>
+
     <!-- ========== OWNER TAB ========== -->
     <div class="tab-content" id="tab-owner">
       <!-- Dealer -->
@@ -615,6 +647,13 @@
     <div class="buyin-modal-balance" id="buyin-modal-balance"></div>
     <div class="buyin-modal-buyin" id="buyin-modal-buyin"></div>
 
+    <!-- Mode toggle -->
+    <div id="buyin-mode-toggle" style="display:flex; gap:0; margin-bottom:16px">
+      <button class="tab-btn active" id="mode-buyin-btn" onclick="setBuyinMode(true)" style="flex:1;min-height:42px;font-size:13px">Buy-In / Cash Out</button>
+      <button class="tab-btn" id="mode-chips-btn" onclick="setBuyinMode(false)" style="flex:1;min-height:42px;font-size:13px;border-radius:0 var(--radius) var(--radius) 0">Chips Only</button>
+    </div>
+    <p id="buyin-mode-hint" style="color:var(--muted); font-size:12px; margin-bottom:14px">Changes both buy-in and balance.</p>
+
     <label>Quick Adjust</label>
     <div class="buyin-presets" id="buyin-presets"></div>
 
@@ -622,6 +661,10 @@
     <div class="buyin-custom">
       <input id="buyin-amount" type="number" inputmode="numeric" placeholder="e.g. 20 or -10">
       <button class="btn-green" onclick="submitBuyin()">Apply</button>
+    </div>
+
+    <div id="buyin-kick-row" style="margin-top:20px; padding-top:16px; border-top:1px solid var(--card)">
+      <button class="btn-danger btn-block btn-sm" onclick="kickPlayer()">Remove from Table</button>
     </div>
   </div>
 </div>
@@ -636,6 +679,7 @@ let handData = null;
 let pollTimer = null;
 let reorderUsernames = [];
 let buyinTarget = null; // username for buy-in modal
+let buyinAdjustMode = true; // true = adjust buy-in + balance, false = chips only
 
 // ========== UTILS ==========
 
@@ -697,10 +741,13 @@ async function joinRoom() {
 }
 
 function enterGame() {
+  sessionStorage.setItem('poker_room', roomCode);
+  sessionStorage.setItem('poker_user', username);
   $('lobby').style.display = 'none';
   $('game').style.display = 'block';
   if (isOwner) {
     $('owner-tab-btn').style.display = '';
+    $('accounts-tab-btn').style.display = '';
     $('player-tap-hint').style.display = '';
   }
   refreshAll();
@@ -712,6 +759,8 @@ async function leaveRoom() {
     await api('POST', `/rooms/${roomCode}/leave`, { username });
     toast('Left room');
   } catch (e) { toast(e.message, true); }
+  sessionStorage.removeItem('poker_room');
+  sessionStorage.removeItem('poker_user');
   clearInterval(pollTimer);
   $('game').style.display = 'none';
   $('lobby').style.display = '';
@@ -742,6 +791,7 @@ async function refreshRoom() {
 
   renderPlayers();
   populateSelects();
+  if (isOwner) renderAccounts();
 }
 
 async function refreshHand() {
@@ -761,7 +811,12 @@ async function refreshHand() {
 function renderPlayers() {
   const list = $('players-list');
   list.innerHTML = '';
-  for (const p of roomData.players) {
+  const visiblePlayers = roomData.players.filter(p => p.is_active);
+  if (visiblePlayers.length === 0) {
+    list.innerHTML = '<p style="color:var(--muted)">No active players.</p>';
+    return;
+  }
+  for (const p of visiblePlayers) {
     const isDealer = roomData.dealer_username === p.username;
     const isMe = p.username === username;
     const isTurn = handData && handData.action_on === p.username;
@@ -779,7 +834,6 @@ function renderPlayers() {
     let badges = '';
     if (isDealer) badges += '<span class="badge badge-dealer">D</span>';
     if (p.username === roomData.owner_username) badges += '<span class="badge badge-owner">Host</span>';
-    if (!p.is_active) badges += '<span class="badge badge-inactive">Left</span>';
     if (isFolded) badges += '<span class="badge badge-folded">Folded</span>';
     if (isAllIn) badges += '<span class="badge badge-allin">All-in</span>';
 
@@ -804,6 +858,69 @@ function renderPlayers() {
         <div class="player-balance">${formatMoney(p.current_balance)}</div>
       </div>`;
   }
+}
+
+// ========== RENDER ACCOUNTS ==========
+
+function renderAccounts() {
+  if (!roomData) return;
+  const list = $('accounts-list');
+  if (!list) return;
+
+  const allPlayers = roomData.players;
+  if (allPlayers.length === 0) {
+    list.innerHTML = '<p style="color:var(--muted)">No players yet.</p>';
+    return;
+  }
+
+  list.innerHTML = '';
+  let totalNet = 0;
+
+  for (const p of allPlayers) {
+    const net = p.current_balance - p.initial_balance;
+    totalNet += net;
+    const netClass = net > 0 ? 'positive' : net < 0 ? 'negative' : 'zero';
+    const netSign = net > 0 ? '+' : '';
+    const statusBadge = p.is_active
+      ? '<span class="badge" style="background:var(--green);color:white">Active</span>'
+      : '<span class="badge badge-inactive">Inactive</span>';
+
+    const reinstateBtn = !p.is_active
+      ? `<div class="account-reinstate"><button class="btn-outline btn-sm" onclick="reinstatePlayer('${p.username}')" style="width:100%;font-size:12px;min-height:36px;padding:6px">Bring Back to Table</button></div>`
+      : '';
+
+    list.innerHTML += `
+      <div class="account-row ${p.is_active ? '' : 'inactive'}">
+        <div class="player-avatar">${p.username.charAt(0).toUpperCase()}</div>
+        <div class="account-info">
+          <div class="account-name">${p.username} ${statusBadge}</div>
+          <div class="account-details">
+            Buy-in: ${formatMoney(p.initial_balance)} | Balance: ${formatMoney(p.current_balance)}
+          </div>
+          ${reinstateBtn}
+        </div>
+        <div class="account-net">
+          <div class="net-val ${netClass}">${netSign}${formatMoney(net)}</div>
+          <div class="net-lbl">net</div>
+        </div>
+      </div>`;
+  }
+
+  // Summary row
+  const summaryClass = totalNet > 0 ? 'positive' : totalNet < 0 ? 'negative' : 'zero';
+  list.innerHTML += `
+    <div style="margin-top:12px; padding:14px 16px; background:var(--surface); border:2px solid var(--card); border-radius:var(--radius); display:flex; justify-content:space-between; align-items:center">
+      <span style="font-weight:700">Total Net</span>
+      <span class="net-val ${summaryClass}" style="font-size:1.2em">${totalNet > 0 ? '+' : ''}${formatMoney(totalNet)}</span>
+    </div>`;
+}
+
+async function reinstatePlayer(playerUsername) {
+  try {
+    await api('POST', `/rooms/${roomCode}/join`, { username: playerUsername });
+    toast(`${playerUsername} is back at the table`);
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
 }
 
 // ========== RENDER HAND ==========
@@ -983,7 +1100,33 @@ function openBuyinModal(playerUsername) {
     <button class="btn-danger btn-sm" onclick="submitBuyinAmount(${-p.initial_balance})">Stash All</button>
   `;
 
+  // Hide kick for owner's own row
+  $('buyin-kick-row').style.display = (playerUsername === username) ? 'none' : '';
+
+  // Reset mode to buy-in
+  setBuyinMode(true);
+
   $('buyin-modal').classList.add('show');
+}
+
+function setBuyinMode(isBuyIn) {
+  buyinAdjustMode = isBuyIn;
+  $('mode-buyin-btn').className = 'tab-btn' + (isBuyIn ? ' active' : '');
+  $('mode-chips-btn').className = 'tab-btn' + (!isBuyIn ? ' active' : '');
+  $('buyin-mode-hint').textContent = isBuyIn
+    ? 'Changes both buy-in and balance.'
+    : 'Changes balance only. Buy-in stays the same.';
+}
+
+async function kickPlayer() {
+  if (!buyinTarget) return;
+  if (!confirm(`Remove ${buyinTarget} from the table?`)) return;
+  try {
+    await api('POST', `/rooms/${roomCode}/kick`, { owner_username: username, username: buyinTarget });
+    toast(`${buyinTarget} removed from table`);
+    closeBuyinModal();
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
 }
 
 function closeBuyinModal() {
@@ -994,8 +1137,14 @@ function closeBuyinModal() {
 async function submitBuyinAmount(amount) {
   if (!buyinTarget) return;
   try {
-    await api('POST', `/rooms/${roomCode}/buy-in`, { owner_username: username, username: buyinTarget, amount });
-    toast(`${buyinTarget}: ${amount >= 0 ? '+' : ''}${formatMoney(amount)}`);
+    await api('POST', `/rooms/${roomCode}/buy-in`, {
+      owner_username: username,
+      username: buyinTarget,
+      amount,
+      adjust_buy_in: buyinAdjustMode,
+    });
+    const label = buyinAdjustMode ? '' : ' (chips only)';
+    toast(`${buyinTarget}: ${amount >= 0 ? '+' : ''}${formatMoney(amount)}${label}`);
     closeBuyinModal();
     await refreshAll();
   } catch (e) { toast(e.message, true); }
@@ -1153,12 +1302,32 @@ function switchTab(tabId) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   $(tabId).classList.add('active');
-  const idx = ['tab-game', 'tab-transfers', 'tab-owner'].indexOf(tabId);
+  const idx = ['tab-game', 'tab-transfers', 'tab-accounts', 'tab-owner'].indexOf(tabId);
   document.querySelectorAll('.tab-btn')[idx].classList.add('active');
 }
 
 // ========== INIT ==========
-$('inp-username').focus();
+
+// Restore session on page reload
+(async function restoreSession() {
+  const savedRoom = sessionStorage.getItem('poker_room');
+  const savedUser = sessionStorage.getItem('poker_user');
+  if (savedRoom && savedUser) {
+    try {
+      const room = await api('GET', `/rooms/${savedRoom}`);
+      roomCode = savedRoom;
+      username = savedUser;
+      isOwner = (room.owner_username === username);
+      enterGame();
+      return;
+    } catch {
+      // Room gone or invalid — clear and show lobby
+      sessionStorage.removeItem('poker_room');
+      sessionStorage.removeItem('poker_user');
+    }
+  }
+  $('inp-username').focus();
+})();
 </script>
 </body>
 </html>
