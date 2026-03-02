@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Poker Manager</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --card: #0f3460;
+    --accent: #e94560;
+    --green: #2ecc71;
+    --gold: #f1c40f;
+    --text: #ecf0f1;
+    --muted: #95a5a6;
+    --danger: #e74c3c;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    min-height: 100dvh;
+    -webkit-tap-highlight-color: transparent;
+    overflow-x: hidden;
+  }
+
+  /* --- Buttons --- */
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: var(--radius);
+    padding: 14px 24px;
+    font-size: 16px;
+    font-weight: 600;
+    transition: opacity .15s, transform .1s;
+    -webkit-appearance: none;
+    min-height: 48px;
+  }
+  button:active { transform: scale(0.96); opacity: 0.85; }
+  button:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+  .btn-primary { background: var(--accent); color: white; width: 100%; }
+  .btn-green { background: var(--green); color: white; }
+  .btn-gold { background: var(--gold); color: #1a1a2e; }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-outline { background: transparent; border: 2px solid var(--muted); color: var(--text); }
+  .btn-sm { padding: 10px 16px; font-size: 14px; min-height: 42px; }
+  .btn-block { width: 100%; }
+
+  /* --- Inputs --- */
+  input, select {
+    background: var(--bg);
+    color: var(--text);
+    border: 2px solid #2a3a5e;
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    font-size: 16px;  /* prevents iOS zoom */
+    outline: none;
+    width: 100%;
+    -webkit-appearance: none;
+    min-height: 48px;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+
+  /* --- Lobby --- */
+  #lobby {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: 24px 20px;
+  }
+  #lobby h1 { font-size: 2em; margin-bottom: 4px; text-align: center; }
+  #lobby .subtitle { color: var(--muted); margin-bottom: 32px; text-align: center; }
+  .lobby-card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 24px;
+    width: 100%;
+    max-width: 400px;
+    margin-bottom: 14px;
+  }
+  .lobby-card h2 { margin-bottom: 16px; font-size: 1.1em; }
+  .lobby-card .field { margin-bottom: 14px; }
+
+  /* --- Game --- */
+  #game { display: none; }
+
+  .topbar {
+    background: var(--surface);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border-bottom: 2px solid var(--card);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .topbar .room-name { font-size: 1.1em; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar .room-code {
+    background: var(--card);
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-family: monospace;
+    font-size: 0.85em;
+    letter-spacing: 2px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .topbar .room-code:active { background: var(--accent); }
+  .topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .topbar .balance-chip {
+    background: var(--green);
+    color: white;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 0.95em;
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    gap: 0;
+    padding: 8px 16px 0;
+    background: var(--bg);
+    position: sticky;
+    top: 54px; /* below topbar */
+    z-index: 40;
+    padding-bottom: 8px;
+  }
+  .tab-btn {
+    flex: 1;
+    background: var(--surface);
+    color: var(--muted);
+    padding: 12px 8px;
+    border: 2px solid var(--card);
+    border-radius: 0;
+    font-weight: 600;
+    font-size: 14px;
+    min-height: 44px;
+  }
+  .tab-btn:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+  .tab-btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+  .tab-btn.active { background: var(--card); color: var(--text); border-color: var(--accent); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .main-content { padding: 12px 16px 100px; max-width: 600px; margin: 0 auto; }
+
+  .section {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .section-title {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 12px;
+    font-weight: 700;
+  }
+
+  /* --- Player List --- */
+  .player-list { display: flex; flex-direction: column; gap: 8px; }
+  .player-row {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 2px solid transparent;
+    transition: border-color .15s;
+    cursor: default;
+  }
+  .player-row.is-turn { border-color: var(--gold); }
+  .player-row.is-you { border-color: var(--accent); }
+  .player-row.is-folded { opacity: 0.4; }
+  .player-row.is-allIn { border-color: var(--danger); }
+  .player-row.tappable { cursor: pointer; }
+  .player-row.tappable:active { opacity: 0.8; }
+
+  .player-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: var(--surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.1em;
+    flex-shrink: 0;
+    text-transform: uppercase;
+  }
+  .player-info { flex: 1; min-width: 0; }
+  .player-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .player-name { font-weight: 700; font-size: 1em; }
+  .player-balance { color: var(--green); font-weight: 700; font-size: 1.1em; text-align: right; flex-shrink: 0; }
+  .player-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    vertical-align: middle;
+  }
+  .badge-dealer { background: var(--gold); color: #1a1a2e; }
+  .badge-owner { background: var(--accent); color: white; }
+  .badge-allin { background: var(--danger); color: white; }
+  .badge-folded { background: var(--muted); color: white; }
+  .badge-inactive { background: #555; color: #aaa; }
+
+  /* --- Hand info --- */
+  .hand-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .hand-stat {
+    text-align: center;
+    background: var(--card);
+    padding: 10px 6px;
+    border-radius: var(--radius);
+  }
+  .hand-stat .val { font-size: 1.2em; font-weight: 700; }
+  .hand-stat .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .pots-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .pot-chip {
+    background: var(--card);
+    padding: 10px 16px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 14px;
+    flex: 1;
+    min-width: 120px;
+    text-align: center;
+  }
+  .pot-chip .pot-label { font-size: 11px; color: var(--muted); display: block; }
+
+  /* --- Actions --- */
+  .actions-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .actions-grid .raise-row {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 10px;
+  }
+  .actions-grid .raise-row input { flex: 1; }
+  .actions-grid .raise-row button { flex-shrink: 0; }
+
+  /* --- Prompts --- */
+  .prompt-box {
+    background: var(--card);
+    border-left: 4px solid var(--gold);
+    padding: 14px 16px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin-bottom: 12px;
+    white-space: pre-line;
+    line-height: 1.5;
+    font-size: 14px;
+  }
+  .prompt-box.owner-prompt { border-left-color: var(--accent); }
+
+  /* --- Transfers --- */
+  .transfer-item {
+    background: var(--card);
+    padding: 14px;
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+  }
+  .transfer-item .t-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .transfer-item .t-actions { display: flex; gap: 8px; }
+  .transfer-item .t-actions button { flex: 1; }
+
+  /* --- Owner controls --- */
+  .control-row { margin-bottom: 14px; }
+  .control-row:last-child { margin-bottom: 0; }
+  .control-inline { display: flex; gap: 10px; align-items: flex-end; }
+  .control-inline .field { flex: 1; }
+  .control-inline button { flex-shrink: 0; }
+
+  /* --- Reorder --- */
+  .reorder-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    background: var(--card);
+    padding: 10px 14px;
+    border-radius: var(--radius);
+  }
+  .reorder-item .reorder-num { color: var(--muted); width: 24px; font-weight: 700; }
+  .reorder-item .reorder-name { flex: 1; font-weight: 600; }
+  .reorder-item button { min-height: 40px; padding: 8px 14px; }
+
+  /* --- Modals (bottom sheet on mobile) --- */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 100;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--surface);
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding: 24px 20px;
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    width: 100%;
+    max-width: 500px;
+    max-height: 85vh;
+    max-height: 85dvh;
+    overflow-y: auto;
+    animation: slideUp .25s ease-out;
+  }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: none; } }
+  .modal h2 { margin-bottom: 16px; font-size: 1.2em; }
+  .modal-handle {
+    width: 40px;
+    height: 4px;
+    background: var(--muted);
+    border-radius: 2px;
+    margin: 0 auto 16px;
+    opacity: 0.5;
+  }
+
+  .pot-settle-row {
+    background: var(--card);
+    padding: 16px;
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+  }
+  .pot-settle-row .pot-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
+  .pot-settle-row .pot-amount { font-size: 1.2em; font-weight: 700; color: var(--gold); }
+  .pot-settle-row .winner-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    margin: 6px 0;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: border-color .15s;
+    min-height: 48px;
+  }
+  .pot-settle-row .winner-option:active { opacity: 0.8; }
+  .pot-settle-row .winner-option.selected { border-color: var(--green); }
+  .pot-settle-row .winner-option input { display: none; }
+  .pot-settle-row .winner-check {
+    width: 24px; height: 24px;
+    border-radius: 6px;
+    border: 2px solid var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 14px;
+  }
+  .pot-settle-row .winner-option.selected .winner-check { background: var(--green); border-color: var(--green); }
+  .pot-settle-row .winner-label { font-weight: 600; font-size: 1em; }
+
+  /* --- Buy-in modal --- */
+  .buyin-modal-player { font-size: 1.3em; font-weight: 700; margin-bottom: 4px; }
+  .buyin-modal-balance { color: var(--green); font-size: 1em; margin-bottom: 4px; }
+  .buyin-modal-buyin { color: var(--muted); font-size: 0.9em; margin-bottom: 20px; }
+  .buyin-presets { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+  .buyin-presets button { font-size: 16px; }
+  .buyin-custom { display: flex; gap: 10px; }
+  .buyin-custom input { flex: 1; }
+  .buyin-custom button { flex-shrink: 0; }
+
+  /* --- Toast --- */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 16px;
+    right: 16px;
+    background: var(--card);
+    color: var(--text);
+    padding: 14px 20px;
+    border-radius: var(--radius);
+    border-left: 4px solid var(--green);
+    z-index: 200;
+    text-align: center;
+    animation: slideUp .3s ease-out;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .toast.error { border-left-color: var(--danger); }
+
+  /* --- Desktop tweaks --- */
+  @media (min-width: 600px) {
+    .modal {
+      border-radius: var(--radius);
+      margin-bottom: 10vh;
+    }
+    .modal-overlay { align-items: center; }
+    .main-content { padding: 16px 20px 60px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== LOBBY ==================== -->
+<div id="lobby">
+  <h1>Poker Manager</h1>
+  <p class="subtitle">Texas Hold'em with friends</p>
+
+  <div class="lobby-card">
+    <div class="field">
+      <label>Your Username</label>
+      <input id="inp-username" placeholder="Enter your name" maxlength="20" autocomplete="off" autocapitalize="off">
+    </div>
+  </div>
+
+  <div class="lobby-card">
+    <h2>Create a Room</h2>
+    <div class="field">
+      <label>Room Name</label>
+      <input id="inp-room-name" placeholder="Friday Night Poker" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Buy-In Amount ($)</label>
+      <input id="inp-buy-in" type="number" inputmode="decimal" placeholder="20" min="1" value="20">
+    </div>
+    <button class="btn-primary" onclick="createRoom()">Create Room</button>
+  </div>
+
+  <div class="lobby-card">
+    <h2>Join a Room</h2>
+    <div class="field">
+      <label>Room Code</label>
+      <input id="inp-room-code" placeholder="ABC123" maxlength="6" style="text-transform:uppercase" autocomplete="off" autocapitalize="characters">
+    </div>
+    <button class="btn-primary" onclick="joinRoom()">Join Room</button>
+  </div>
+</div>
+
+<!-- ==================== GAME ==================== -->
+<div id="game">
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="room-name" id="disp-room-name"></span>
+      <span class="room-code" id="disp-room-code" title="Click to copy" onclick="copyCode()"></span>
+    </div>
+    <div class="topbar-right">
+      <span class="balance-chip" id="disp-balance">$0</span>
+      <button class="btn-outline btn-sm" onclick="leaveRoom()" style="padding:8px 12px;min-height:36px;font-size:13px">Leave</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('tab-game')">Game</button>
+    <button class="tab-btn" onclick="switchTab('tab-transfers')">Transfers</button>
+    <button class="tab-btn" onclick="switchTab('tab-owner')" id="owner-tab-btn" style="display:none">Owner</button>
+  </div>
+
+  <div class="main-content">
+
+    <!-- ========== GAME TAB ========== -->
+    <div class="tab-content active" id="tab-game">
+
+      <!-- Hand (shown when active) -->
+      <div class="section" id="hand-section" style="display:none">
+        <div class="section-title">Current Hand</div>
+
+        <div id="dealer-prompt-box"></div>
+        <div id="owner-prompt-box"></div>
+
+        <div class="hand-stats">
+          <div class="hand-stat"><div class="val" id="hand-round">--</div><div class="lbl">Round</div></div>
+          <div class="hand-stat"><div class="val" id="hand-pot">$0</div><div class="lbl">Pot</div></div>
+          <div class="hand-stat"><div class="val" id="hand-action-on">--</div><div class="lbl">Turn</div></div>
+        </div>
+
+        <div class="pots-row" id="pots-row"></div>
+
+        <!-- Action buttons -->
+        <div class="actions-grid" id="actions-row" style="display:none">
+          <button class="btn-green" onclick="doAction('check')">Check</button>
+          <button class="btn-green" onclick="doAction('call')" id="btn-call">Call</button>
+          <div class="raise-row">
+            <input id="raise-amount" type="number" inputmode="decimal" placeholder="Raise to..." min="0" step="1">
+            <button class="btn-gold" onclick="doAction('raise')">Raise</button>
+          </div>
+          <button class="btn-danger" onclick="doAction('fold')" style="grid-column:1/-1">Fold</button>
+        </div>
+
+        <!-- Advance round -->
+        <div id="advance-row" style="display:none">
+          <button class="btn-gold btn-block" onclick="advanceRound()">Deal Next Round</button>
+        </div>
+
+        <!-- Settle -->
+        <div id="settle-row" style="display:none">
+          <button class="btn-primary" onclick="openSettleModal()">Settle Hand -- Assign Winners</button>
+        </div>
+      </div>
+
+      <!-- No hand -->
+      <div class="section" id="no-hand-section">
+        <div class="section-title">Hand</div>
+        <p style="color:var(--muted); margin-bottom:14px">No hand in progress.</p>
+        <button class="btn-green btn-block" onclick="startHand()" id="btn-start-hand" style="display:none">Start New Hand</button>
+      </div>
+
+      <!-- Players -->
+      <div class="section">
+        <div class="section-title">Players <span id="player-tap-hint" style="display:none; font-weight:400; text-transform:none; letter-spacing:0; font-size:11px; color:var(--accent)">-- tap a name to adjust chips</span></div>
+        <div class="player-list" id="players-list"></div>
+      </div>
+    </div>
+
+    <!-- ========== TRANSFERS TAB ========== -->
+    <div class="tab-content" id="tab-transfers">
+      <div class="section">
+        <div class="section-title">Request Transfer</div>
+        <div class="control-row">
+          <label>To Player</label>
+          <select id="transfer-to"></select>
+        </div>
+        <div class="control-row">
+          <label>Amount ($)</label>
+          <input id="transfer-amount" type="number" inputmode="decimal" min="1" placeholder="10">
+        </div>
+        <button class="btn-green btn-block" onclick="requestTransfer()">Send Request</button>
+      </div>
+
+      <div class="section" id="pending-transfers-section">
+        <div class="section-title">Pending Transfers</div>
+        <div id="pending-transfers-list"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">History</div>
+        <div id="all-transfers-list"></div>
+      </div>
+    </div>
+
+    <!-- ========== OWNER TAB ========== -->
+    <div class="tab-content" id="tab-owner">
+      <!-- Dealer -->
+      <div class="section">
+        <div class="section-title">Dealer</div>
+        <div class="control-row">
+          <label>Set Dealer</label>
+          <div class="control-inline">
+            <div class="field"><select id="dealer-select"></select></div>
+            <button class="btn-gold btn-sm" onclick="setDealer()">Set</button>
+          </div>
+        </div>
+        <button class="btn-outline btn-block btn-sm" onclick="nextDealer()" style="margin-top:8px">Rotate to Next Dealer</button>
+      </div>
+
+      <!-- Reorder -->
+      <div class="section">
+        <div class="section-title">Reorder Players</div>
+        <div id="reorder-list" style="margin-bottom:12px"></div>
+        <button class="btn-gold btn-block btn-sm" onclick="saveReorder()">Save Order</button>
+      </div>
+
+      <!-- Delete room -->
+      <div class="section" style="border: 2px solid var(--danger);">
+        <div class="section-title">Danger Zone</div>
+        <button class="btn-danger btn-block btn-sm" onclick="deleteRoom()">Delete Room</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SETTLE MODAL ==================== -->
+<div class="modal-overlay" id="settle-modal" onclick="if(event.target===this)closeSettleModal()">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>Assign Winners</h2>
+    <div id="settle-pots"></div>
+    <div style="display:flex; gap:10px; margin-top:20px">
+      <button class="btn-primary" onclick="submitSettle()" style="flex:1">Confirm</button>
+      <button class="btn-outline" onclick="closeSettleModal()" style="flex-shrink:0">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== BUY-IN MODAL ==================== -->
+<div class="modal-overlay" id="buyin-modal" onclick="if(event.target===this)closeBuyinModal()">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="buyin-modal-player" id="buyin-modal-name"></div>
+    <div class="buyin-modal-balance" id="buyin-modal-balance"></div>
+    <div class="buyin-modal-buyin" id="buyin-modal-buyin"></div>
+
+    <label>Quick Adjust</label>
+    <div class="buyin-presets" id="buyin-presets"></div>
+
+    <label>Custom Amount</label>
+    <div class="buyin-custom">
+      <input id="buyin-amount" type="number" inputmode="numeric" placeholder="e.g. 20 or -10">
+      <button class="btn-green" onclick="submitBuyin()">Apply</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let roomCode = '';
+let username = '';
+let isOwner = false;
+let roomData = null;
+let handData = null;
+let pollTimer = null;
+let reorderUsernames = [];
+let buyinTarget = null; // username for buy-in modal
+
+// ========== UTILS ==========
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API + path, opts);
+  if (res.status === 204) return null;
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || 'Request failed');
+  return data;
+}
+
+function toast(msg, isError = false) {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const el = document.createElement('div');
+  el.className = 'toast' + (isError ? ' error' : '');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+function $(id) { return document.getElementById(id); }
+
+function formatMoney(n) {
+  if (n == null) return '$0';
+  return '$' + Number(n).toFixed(2).replace(/\.00$/, '');
+}
+
+// ========== LOBBY ==========
+
+async function createRoom() {
+  username = $('inp-username').value.trim();
+  const name = $('inp-room-name').value.trim();
+  const buyIn = parseFloat($('inp-buy-in').value);
+  if (!username) return toast('Enter a username', true);
+  if (!name) return toast('Enter a room name', true);
+  if (!buyIn || buyIn <= 0) return toast('Enter a valid buy-in', true);
+  try {
+    const room = await api('POST', '/rooms', { name, owner_username: username, buy_in: buyIn });
+    roomCode = room.code;
+    isOwner = true;
+    enterGame();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function joinRoom() {
+  username = $('inp-username').value.trim();
+  const code = $('inp-room-code').value.trim().toUpperCase();
+  if (!username) return toast('Enter a username', true);
+  if (!code) return toast('Enter a room code', true);
+  try {
+    await api('POST', `/rooms/${code}/join`, { username });
+    roomCode = code;
+    const room = await api('GET', `/rooms/${code}`);
+    isOwner = (room.owner_username === username);
+    enterGame();
+  } catch (e) { toast(e.message, true); }
+}
+
+function enterGame() {
+  $('lobby').style.display = 'none';
+  $('game').style.display = 'block';
+  if (isOwner) {
+    $('owner-tab-btn').style.display = '';
+    $('player-tap-hint').style.display = '';
+  }
+  refreshAll();
+  pollTimer = setInterval(refreshAll, 2500);
+}
+
+async function leaveRoom() {
+  try {
+    await api('POST', `/rooms/${roomCode}/leave`, { username });
+    toast('Left room');
+  } catch (e) { toast(e.message, true); }
+  clearInterval(pollTimer);
+  $('game').style.display = 'none';
+  $('lobby').style.display = '';
+}
+
+function copyCode() {
+  navigator.clipboard.writeText(roomCode).catch(() => {});
+  toast('Code copied: ' + roomCode);
+}
+
+// ========== REFRESH ==========
+
+async function refreshAll() {
+  try {
+    await refreshRoom();
+    await refreshHand();
+    refreshTransfers();
+  } catch (e) { /* silent */ }
+}
+
+async function refreshRoom() {
+  roomData = await api('GET', `/rooms/${roomCode}`);
+  $('disp-room-name').textContent = roomData.name;
+  $('disp-room-code').textContent = roomCode;
+
+  const me = roomData.players.find(p => p.username === username);
+  $('disp-balance').textContent = me ? formatMoney(me.current_balance) : '$?';
+
+  renderPlayers();
+  populateSelects();
+}
+
+async function refreshHand() {
+  try {
+    handData = await api('GET', `/rooms/${roomCode}/hands/current`);
+    renderHand();
+  } catch {
+    handData = null;
+    $('hand-section').style.display = 'none';
+    $('no-hand-section').style.display = '';
+    $('btn-start-hand').style.display = isOwner ? '' : 'none';
+  }
+}
+
+// ========== RENDER PLAYERS ==========
+
+function renderPlayers() {
+  const list = $('players-list');
+  list.innerHTML = '';
+  for (const p of roomData.players) {
+    const isDealer = roomData.dealer_username === p.username;
+    const isMe = p.username === username;
+    const isTurn = handData && handData.action_on === p.username;
+    const hp = handData ? handData.players.find(h => h.username === p.username) : null;
+    const isFolded = hp && hp.status === 'folded';
+    const isAllIn = hp && hp.status === 'all_in';
+
+    let classes = 'player-row';
+    if (isTurn) classes += ' is-turn';
+    if (isMe) classes += ' is-you';
+    if (isFolded) classes += ' is-folded';
+    if (isAllIn) classes += ' is-allIn';
+    if (isOwner) classes += ' tappable';
+
+    let badges = '';
+    if (isDealer) badges += '<span class="badge badge-dealer">D</span>';
+    if (p.username === roomData.owner_username) badges += '<span class="badge badge-owner">Host</span>';
+    if (!p.is_active) badges += '<span class="badge badge-inactive">Left</span>';
+    if (isFolded) badges += '<span class="badge badge-folded">Folded</span>';
+    if (isAllIn) badges += '<span class="badge badge-allin">All-in</span>';
+
+    const initial = p.username.charAt(0).toUpperCase();
+    let sub = `Buy-in: ${formatMoney(p.initial_balance)}`;
+    if (hp && hp.total_bet > 0) {
+      sub += ` | Bet: ${formatMoney(hp.bet_this_round)}`;
+    }
+
+    const tapHandler = isOwner ? `onclick="openBuyinModal('${p.username}')"` : '';
+
+    list.innerHTML += `
+      <div class="${classes}" ${tapHandler}>
+        <div class="player-avatar">${initial}</div>
+        <div class="player-info">
+          <div class="player-name-row">
+            <span class="player-name">${p.username}</span>
+            ${badges}
+          </div>
+          <div class="player-sub">${sub}</div>
+        </div>
+        <div class="player-balance">${formatMoney(p.current_balance)}</div>
+      </div>`;
+  }
+}
+
+// ========== RENDER HAND ==========
+
+function renderHand() {
+  if (!handData) return;
+
+  $('hand-section').style.display = '';
+  $('no-hand-section').style.display = 'none';
+
+  $('hand-round').textContent = handData.current_round.toUpperCase();
+
+  const totalPot = handData.pots.reduce((s, p) => s + p.amount, 0);
+  $('hand-pot').textContent = formatMoney(totalPot);
+  $('hand-action-on').textContent = handData.action_on || (handData.status === 'complete' ? 'Showdown' : '--');
+
+  // Pots
+  const potsRow = $('pots-row');
+  potsRow.innerHTML = '';
+  handData.pots.forEach((pot, i) => {
+    const label = handData.pots.length > 1 ? (i === 0 ? 'Main' : 'Side ' + i) : 'Pot';
+    potsRow.innerHTML += `<div class="pot-chip">
+      <span class="pot-label">${label}</span>
+      ${formatMoney(pot.amount)}
+      <span class="pot-label">${pot.eligible.join(', ')}</span>
+    </div>`;
+  });
+
+  // Dealer prompt
+  const dpBox = $('dealer-prompt-box');
+  dpBox.innerHTML = handData.dealer_prompt
+    ? `<div class="prompt-box">${handData.dealer_prompt}</div>` : '';
+
+  // Owner prompt
+  const opBox = $('owner-prompt-box');
+  opBox.innerHTML = handData.owner_prompt
+    ? `<div class="prompt-box owner-prompt">${handData.owner_prompt}</div>` : '';
+
+  // Action buttons
+  const myTurn = handData.status === 'active' && handData.action_on === username;
+  $('actions-row').style.display = myTurn ? 'grid' : 'none';
+
+  // Show call amount on button
+  if (myTurn && handData.current_bet > 0) {
+    const myHp = handData.players.find(h => h.username === username);
+    const toCall = handData.current_bet - (myHp ? myHp.bet_this_round : 0);
+    $('btn-call').textContent = toCall > 0 ? `Call ${formatMoney(toCall)}` : 'Call';
+  } else {
+    $('btn-call').textContent = 'Call';
+  }
+
+  $('advance-row').style.display = handData.status === 'round_complete' ? '' : 'none';
+  $('settle-row').style.display = (isOwner && handData.status === 'complete' && handData.pots.length > 0) ? '' : 'none';
+
+  if (handData.status === 'settled') {
+    handData = null;
+    $('hand-section').style.display = 'none';
+    $('no-hand-section').style.display = '';
+    $('btn-start-hand').style.display = isOwner ? '' : 'none';
+  }
+
+  renderPlayers();
+}
+
+// ========== HAND ACTIONS ==========
+
+async function startHand() {
+  try {
+    await api('POST', `/rooms/${roomCode}/hands`);
+    toast('Hand started!');
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function doAction(action) {
+  const body = { username, action };
+  if (action === 'raise') {
+    const amt = parseFloat($('raise-amount').value);
+    if (!amt || amt <= 0) return toast('Enter a raise amount', true);
+    body.amount = amt;
+  }
+  try {
+    await api('POST', `/rooms/${roomCode}/hands/current/action`, body);
+    $('raise-amount').value = '';
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function advanceRound() {
+  try {
+    await api('POST', `/rooms/${roomCode}/hands/current/next-round`);
+    toast('Next round!');
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+
+// ========== SETTLE MODAL ==========
+
+function openSettleModal() {
+  if (!handData || handData.status !== 'complete') return;
+  const container = $('settle-pots');
+  container.innerHTML = '';
+  handData.pots.forEach((pot, i) => {
+    const label = handData.pots.length > 1 ? (i === 0 ? 'Main Pot' : 'Side Pot ' + i) : 'Pot';
+    const options = pot.eligible.map(u =>
+      `<div class="winner-option" onclick="toggleWinner(this)">
+        <input type="checkbox" name="pot-${i}-winner" value="${u}">
+        <div class="winner-check"></div>
+        <span class="winner-label">${u}</span>
+      </div>`
+    ).join('');
+    container.innerHTML += `
+      <div class="pot-settle-row">
+        <div class="pot-header">
+          <span>${label}</span>
+          <span class="pot-amount">${formatMoney(pot.amount)}</span>
+        </div>
+        ${options}
+      </div>`;
+  });
+  $('settle-modal').classList.add('show');
+}
+
+function toggleWinner(el) {
+  const cb = el.querySelector('input[type="checkbox"]');
+  cb.checked = !cb.checked;
+  el.classList.toggle('selected', cb.checked);
+}
+
+function closeSettleModal() { $('settle-modal').classList.remove('show'); }
+
+async function submitSettle() {
+  const potWinners = [];
+  handData.pots.forEach((pot, i) => {
+    const checks = document.querySelectorAll(`input[name="pot-${i}-winner"]:checked`);
+    const winners = Array.from(checks).map(c => c.value);
+    if (winners.length > 0) potWinners.push({ pot_index: i, winners });
+  });
+
+  if (potWinners.length !== handData.pots.length) {
+    return toast('Select at least one winner for each pot', true);
+  }
+
+  try {
+    await api('POST', `/rooms/${roomCode}/hands/${handData.id}/settle`, {
+      owner_username: username,
+      pot_winners: potWinners,
+    });
+    closeSettleModal();
+    toast('Hand settled!');
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+
+// ========== BUY-IN MODAL ==========
+
+function openBuyinModal(playerUsername) {
+  if (!isOwner || !roomData) return;
+  buyinTarget = playerUsername;
+  const p = roomData.players.find(pl => pl.username === playerUsername);
+  if (!p) return;
+
+  $('buyin-modal-name').textContent = p.username;
+  $('buyin-modal-balance').textContent = `Balance: ${formatMoney(p.current_balance)}`;
+  $('buyin-modal-buyin').textContent = `Total buy-in: ${formatMoney(p.initial_balance)}`;
+  $('buyin-amount').value = '';
+
+  // Preset buttons based on room buy-in
+  const buyIn = roomData.buy_in;
+  const presets = $('buyin-presets');
+  presets.innerHTML = `
+    <button class="btn-green btn-sm" onclick="submitBuyinAmount(${buyIn})">+${formatMoney(buyIn)}</button>
+    <button class="btn-green btn-sm" onclick="submitBuyinAmount(${buyIn * 2})">+${formatMoney(buyIn * 2)}</button>
+    <button class="btn-green btn-sm" onclick="submitBuyinAmount(${buyIn / 2})">+${formatMoney(buyIn / 2)}</button>
+    <button class="btn-danger btn-sm" onclick="submitBuyinAmount(${-buyIn})">-${formatMoney(buyIn)}</button>
+    <button class="btn-danger btn-sm" onclick="submitBuyinAmount(${-buyIn * 2})">-${formatMoney(buyIn * 2)}</button>
+    <button class="btn-danger btn-sm" onclick="submitBuyinAmount(${-p.initial_balance})">Stash All</button>
+  `;
+
+  $('buyin-modal').classList.add('show');
+}
+
+function closeBuyinModal() {
+  $('buyin-modal').classList.remove('show');
+  buyinTarget = null;
+}
+
+async function submitBuyinAmount(amount) {
+  if (!buyinTarget) return;
+  try {
+    await api('POST', `/rooms/${roomCode}/buy-in`, { owner_username: username, username: buyinTarget, amount });
+    toast(`${buyinTarget}: ${amount >= 0 ? '+' : ''}${formatMoney(amount)}`);
+    closeBuyinModal();
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function submitBuyin() {
+  const amount = parseFloat($('buyin-amount').value);
+  if (isNaN(amount) || amount === 0) return toast('Enter an amount', true);
+  await submitBuyinAmount(amount);
+}
+
+// ========== OWNER CONTROLS ==========
+
+async function setDealer() {
+  const dealer = $('dealer-select').value;
+  if (!dealer) return;
+  try {
+    await api('PUT', `/rooms/${roomCode}/dealer`, { owner_username: username, dealer_username: dealer });
+    toast('Dealer: ' + dealer);
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function nextDealer() {
+  try {
+    const res = await api('POST', `/rooms/${roomCode}/dealer/next`);
+    toast('Dealer: ' + res.dealer_username);
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+
+function populateSelects() {
+  if (!roomData) return;
+  const activePlayers = roomData.players.filter(p => p.is_active);
+  const allPlayers = roomData.players;
+
+  const ds = $('dealer-select');
+  const dsVal = ds.value;
+  ds.innerHTML = activePlayers.map(p => `<option value="${p.username}">${p.username}</option>`).join('');
+  if (dsVal) ds.value = dsVal;
+
+  const ts = $('transfer-to');
+  const tsVal = ts.value;
+  ts.innerHTML = activePlayers.filter(p => p.username !== username).map(p => `<option value="${p.username}">${p.username}</option>`).join('');
+  if (tsVal) ts.value = tsVal;
+
+  renderReorder(allPlayers);
+}
+
+function renderReorder(players) {
+  const list = $('reorder-list');
+  reorderUsernames = players.map(p => p.username || p);
+  list.innerHTML = '';
+  reorderUsernames.forEach((u, i) => {
+    list.innerHTML += `
+      <div class="reorder-item">
+        <span class="reorder-num">${i + 1}</span>
+        <span class="reorder-name">${u}</span>
+        <button class="btn-outline btn-sm" onclick="reorderMove(${i},-1)" ${i === 0 ? 'disabled' : ''}>&#9650;</button>
+        <button class="btn-outline btn-sm" onclick="reorderMove(${i},1)" ${i === reorderUsernames.length - 1 ? 'disabled' : ''}>&#9660;</button>
+      </div>`;
+  });
+}
+
+function reorderMove(idx, dir) {
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= reorderUsernames.length) return;
+  [reorderUsernames[idx], reorderUsernames[newIdx]] = [reorderUsernames[newIdx], reorderUsernames[idx]];
+  renderReorder(reorderUsernames.map(u => ({ username: u })));
+}
+
+async function saveReorder() {
+  try {
+    await api('PUT', `/rooms/${roomCode}/reorder`, { owner_username: username, order: reorderUsernames });
+    toast('Order saved!');
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function deleteRoom() {
+  if (!confirm('Delete this room? This cannot be undone.')) return;
+  try {
+    await api('DELETE', `/rooms/${roomCode}`, { owner_username: username });
+    clearInterval(pollTimer);
+    toast('Room deleted');
+    $('game').style.display = 'none';
+    $('lobby').style.display = '';
+  } catch (e) { toast(e.message, true); }
+}
+
+// ========== TRANSFERS ==========
+
+async function requestTransfer() {
+  const to = $('transfer-to').value;
+  const amount = parseFloat($('transfer-amount').value);
+  if (!to) return toast('Select a player', true);
+  if (!amount || amount <= 0) return toast('Enter a valid amount', true);
+  try {
+    await api('POST', `/rooms/${roomCode}/transfers`, { from_username: username, to_username: to, amount });
+    toast('Transfer requested!');
+    $('transfer-amount').value = '';
+    refreshTransfers();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function refreshTransfers() {
+  try {
+    const pending = await api('GET', `/rooms/${roomCode}/transfers?status=pending`);
+    const pList = $('pending-transfers-list');
+    if (pending.length === 0) {
+      pList.innerHTML = '<p style="color:var(--muted)">No pending transfers.</p>';
+    } else {
+      pList.innerHTML = pending.map(t => `
+        <div class="transfer-item">
+          <div class="t-top">
+            <span><strong>${t.from_username}</strong> &rarr; <strong>${t.to_username}</strong></span>
+            <strong>${formatMoney(t.amount)}</strong>
+          </div>
+          ${isOwner ? `<div class="t-actions">
+            <button class="btn-green btn-sm" onclick="resolveTransfer(${t.id}, 'approve')">Approve</button>
+            <button class="btn-danger btn-sm" onclick="resolveTransfer(${t.id}, 'reject')">Reject</button>
+          </div>` : '<span class="badge" style="background:var(--gold);color:#1a1a2e">Pending</span>'}
+        </div>`).join('');
+    }
+
+    const all = await api('GET', `/rooms/${roomCode}/transfers`);
+    const aList = $('all-transfers-list');
+    const resolved = all.filter(t => t.status !== 'pending');
+    if (resolved.length === 0) {
+      aList.innerHTML = '<p style="color:var(--muted)">No transfer history.</p>';
+    } else {
+      aList.innerHTML = resolved.map(t => `
+        <div class="transfer-item">
+          <div class="t-top">
+            <span><strong>${t.from_username}</strong> &rarr; <strong>${t.to_username}</strong></span>
+            <strong>${formatMoney(t.amount)}</strong>
+          </div>
+          <span class="badge" style="background:${t.status === 'approved' ? 'var(--green)' : 'var(--danger)'};color:white">${t.status}</span>
+        </div>`).join('');
+    }
+  } catch { /* silent */ }
+}
+
+async function resolveTransfer(id, action) {
+  try {
+    await api('POST', `/rooms/${roomCode}/transfers/${id}/${action}`, { owner_username: username });
+    toast(`Transfer ${action}d!`);
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+
+// ========== TABS ==========
+
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  $(tabId).classList.add('active');
+  const idx = ['tab-game', 'tab-transfers', 'tab-owner'].indexOf(tabId);
+  document.querySelectorAll('.tab-btn')[idx].classList.add('active');
+}
+
+// ========== INIT ==========
+$('inp-username').focus();
+</script>
+</body>
+</html>
