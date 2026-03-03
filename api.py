@@ -19,6 +19,7 @@ from sqlalchemy import (
     UniqueConstraint,
     select,
     event,
+    text,
 )
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -53,6 +54,8 @@ class RoomModel(Base):
     name = Column(String, nullable=False)
     owner_username = Column(String, nullable=False)
     buy_in = Column(Float, nullable=False)
+    small_blind = Column(Float, nullable=False, default=0.25)
+    big_blind = Column(Float, nullable=False, default=0.50)
     dealer_username = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -71,6 +74,7 @@ class PlayerModel(Base):
     current_balance = Column(Float, nullable=False)
     position = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, default=True, nullable=False)
+    sit_out = Column(Boolean, default=False, nullable=False)
     joined_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     room = relationship("RoomModel", back_populates="players")
@@ -145,6 +149,8 @@ class RoomResponse(BaseModel):
     name: str
     owner_username: str
     buy_in: float
+    small_blind: float
+    big_blind: float
     dealer_username: Optional[str] = None
     created_at: datetime
 
@@ -246,6 +252,19 @@ async def serve_index():
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migrate: add blind columns if missing
+        try:
+            await conn.execute(text("ALTER TABLE rooms ADD COLUMN small_blind FLOAT NOT NULL DEFAULT 0.25"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("ALTER TABLE rooms ADD COLUMN big_blind FLOAT NOT NULL DEFAULT 0.50"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("ALTER TABLE players ADD COLUMN sit_out BOOLEAN NOT NULL DEFAULT 0"))
+        except Exception:
+            pass
 
 
 def _generate_code(length: int = 6) -> str:
@@ -325,14 +344,7 @@ def _build_hand_response(hand: HandModel, dealer_prompt: Optional[str] = None) -
         for i, pot in enumerate(pots):
             pot_lines.append(f"  Pot {i}: ${pot.amount:.2f} — eligible: {', '.join(pot.eligible)}")
         pot_summary = "\n".join(pot_lines)
-        owner_prompt = (
-            f"Hand is complete. Assign winners for each pot using "
-            f"POST /rooms/{{code}}/hands/{hand.id}/settle\n"
-            f"\n"
-            f"{pot_summary}\n"
-            f"\n"
-            f"Send pot_winners with a winner (or multiple for a split) for each pot index."
-        )
+        owner_prompt = "Hand complete. Assign payouts to the winning hand(s)."
 
     return HandResponse(
         id=hand.id,
@@ -394,6 +406,8 @@ async def create_room(req: CreateRoomRequest):
             name=room.name,
             owner_username=room.owner_username,
             buy_in=room.buy_in,
+            small_blind=room.small_blind,
+            big_blind=room.big_blind,
             dealer_username=room.dealer_username,
             created_at=room.created_at,
         )
@@ -418,6 +432,8 @@ async def get_room(code: str):
             name=room.name,
             owner_username=room.owner_username,
             buy_in=room.buy_in,
+            small_blind=room.small_blind,
+            big_blind=room.big_blind,
             dealer_username=room.dealer_username,
             created_at=room.created_at,
             players=players,
@@ -444,6 +460,15 @@ async def join_room(code: str, req: JoinRequest):
     async with SessionLocal() as session:
         room = await _get_room(session, code)
 
+        # Check if a hand is in progress
+        active_hand = await session.execute(
+            select(HandModel).where(
+                HandModel.room_id == room.id,
+                HandModel.status.in_(["active", "round_complete"]),
+            )
+        )
+        hand_in_progress = active_hand.scalar_one_or_none() is not None
+
         # Check if player already exists in room
         result = await session.execute(
             select(PlayerModel).where(
@@ -456,6 +481,8 @@ async def join_room(code: str, req: JoinRequest):
         if player:
             # Rejoin — reactivate with old balance
             player.is_active = True
+            if hand_in_progress:
+                player.sit_out = True
             await session.commit()
             await session.refresh(player)
         else:
@@ -475,6 +502,7 @@ async def join_room(code: str, req: JoinRequest):
                 initial_balance=room.buy_in,
                 current_balance=room.buy_in,
                 position=next_pos,
+                sit_out=hand_in_progress,
             )
             session.add(player)
             await session.commit()
@@ -678,6 +706,34 @@ async def reorder_players(code: str, req: ReorderRequest):
 # ---------------------------------------------------------------------------
 
 
+class SetBlindsRequest(BaseModel):
+    owner_username: str
+    small_blind: float = Field(gt=0)
+    big_blind: float = Field(gt=0)
+
+
+@app.put("/rooms/{code}/blinds", response_model=RoomResponse)
+async def set_blinds(code: str, req: SetBlindsRequest):
+    async with SessionLocal() as session:
+        room = await _get_room(session, code)
+        if room.owner_username != req.owner_username:
+            raise HTTPException(status_code=403, detail="Only the room owner can set blinds")
+        room.small_blind = req.small_blind
+        room.big_blind = req.big_blind
+        await session.commit()
+        await session.refresh(room)
+        return RoomResponse(
+            code=room.code,
+            name=room.name,
+            owner_username=room.owner_username,
+            buy_in=room.buy_in,
+            small_blind=room.small_blind,
+            big_blind=room.big_blind,
+            dealer_username=room.dealer_username,
+            created_at=room.created_at,
+        )
+
+
 class SetDealerRequest(BaseModel):
     owner_username: str
     dealer_username: str
@@ -780,13 +836,50 @@ async def start_hand(code: str):
         await session.flush()
 
         for p in active_room_players:
-            session.add(HandPlayerModel(hand_id=hand.id, username=p.username))
+            hp = HandPlayerModel(hand_id=hand.id, username=p.username)
+            if p.sit_out:
+                hp.status = "folded"
+                hp.has_acted = True
+            session.add(hp)
+            p.sit_out = False
 
         await session.flush()
         await session.refresh(hand)
 
-        # First to act is the player after the dealer
-        first = _find_next_actor(hand.hand_players, room.players, None, room.dealer_username)
+        # --- Post blinds ---
+        SMALL_BLIND = room.small_blind
+        BIG_BLIND = room.big_blind
+
+        # Sort active players by position, find dealer position
+        sorted_players = sorted(active_room_players, key=lambda p: p.position)
+        dealer_pos = next((p.position for p in sorted_players if p.username == room.dealer_username), -1)
+
+        # Get players after dealer (wrapping around)
+        after_dealer = [p for p in sorted_players if p.position > dealer_pos]
+        before_dealer = [p for p in sorted_players if p.position <= dealer_pos]
+        ordered = after_dealer + before_dealer
+
+        sb_player = ordered[0]  # first after dealer = small blind
+        bb_player = ordered[1]  # second after dealer = big blind
+
+        # Post small blind
+        sb_hp = next(hp for hp in hand.hand_players if hp.username == sb_player.username)
+        sb_amount = min(SMALL_BLIND, sb_player.current_balance)
+        sb_player.current_balance -= sb_amount
+        sb_hp.bet_this_round = sb_amount
+        sb_hp.total_bet = sb_amount
+
+        # Post big blind
+        bb_hp = next(hp for hp in hand.hand_players if hp.username == bb_player.username)
+        bb_amount = min(BIG_BLIND, bb_player.current_balance)
+        bb_player.current_balance -= bb_amount
+        bb_hp.bet_this_round = bb_amount
+        bb_hp.total_bet = bb_amount
+
+        hand.current_bet = BIG_BLIND
+
+        # First to act preflop is the player after the big blind
+        first = _find_next_actor(hand.hand_players, room.players, bb_player.username, room.dealer_username)
         hand.action_on_username = first
 
         await session.commit()
@@ -1044,14 +1137,35 @@ async def settle_hand(code: str, hand_id: int, req: SettleRequest):
                         detail=f"'{winner}' is not eligible for pot {pw.pot_index} (eligible: {pot.eligible})",
                     )
 
-            # Split pot among winners
-            share = pot.amount / len(pw.winners)
+            # Split pot among winners, remainder to dealer
+            sb = room.small_blind
+            num_winners = len(pw.winners)
+            base_share = (pot.amount // sb) // num_winners * sb  # largest even split in SB increments
+            remainder = pot.amount - base_share * num_winners
             for winner in pw.winners:
                 rp = next((p for p in room.players if p.username == winner), None)
                 if rp:
-                    rp.current_balance += share
+                    rp.current_balance += base_share
+            if remainder > 0 and room.dealer_username:
+                dealer_rp = next((p for p in room.players if p.username == room.dealer_username), None)
+                if dealer_rp:
+                    dealer_rp.current_balance += remainder
 
         hand.status = "settled"
+
+        # Auto-rotate dealer to next active player
+        active_players = sorted(
+            [p for p in room.players if p.is_active],
+            key=lambda p: p.position,
+        )
+        if len(active_players) >= 2 and room.dealer_username:
+            usernames = [p.username for p in active_players]
+            try:
+                current_idx = usernames.index(room.dealer_username)
+            except ValueError:
+                current_idx = -1
+            room.dealer_username = usernames[(current_idx + 1) % len(usernames)]
+
         await session.commit()
         await session.refresh(hand)
         return _build_hand_response(hand)

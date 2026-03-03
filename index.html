@@ -151,7 +151,7 @@
     min-height: 44px;
   }
   .tab-btn:first-child { border-radius: var(--radius) 0 0 var(--radius); }
-  .tab-btn:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+  .tab-btn:last-child, .tab-btn.tab-last { border-radius: 0 var(--radius) var(--radius) 0; }
   .tab-btn.active { background: var(--card); color: var(--text); border-color: var(--accent); }
   .tab-content { display: none; }
   .tab-content.active { display: block; }
@@ -268,6 +268,10 @@
   }
   .actions-grid .raise-row input { flex: 1; }
   .actions-grid .raise-row button { flex-shrink: 0; }
+  .quick-raise-row { grid-column: 1 / -1; display: flex; gap: 10px; }
+  .quick-raise-row .btn-quick { flex: 1; }
+  .btn-quick { background: transparent; border: 2px solid var(--gold); color: var(--gold); padding: 10px 10px; border-radius: var(--radius); font-weight: 700; font-size: 14px; cursor: pointer; }
+  .btn-quick:active { background: var(--gold); color: #1a1a2e; }
 
   /* --- Prompts --- */
   .prompt-box {
@@ -526,6 +530,11 @@
 
         <!-- Action buttons -->
         <div class="actions-grid" id="actions-row" style="display:none">
+          <div class="quick-raise-row">
+            <button class="btn-quick" id="qb-1x" onclick="quickBet(1)">Raise $0.50</button>
+            <button class="btn-quick" id="qb-2x" onclick="quickBet(2)">Raise $1</button>
+            <button class="btn-quick" id="qb-4x" onclick="quickBet(4)">Raise $2</button>
+          </div>
           <button class="btn-green" onclick="doAction('check')">Check</button>
           <button class="btn-green" onclick="doAction('call')" id="btn-call">Call</button>
           <div class="raise-row">
@@ -597,6 +606,20 @@
 
     <!-- ========== OWNER TAB ========== -->
     <div class="tab-content" id="tab-owner">
+      <!-- Blinds -->
+      <div class="section">
+        <div class="section-title">Blinds</div>
+        <div class="control-row">
+          <label>Small Blind ($)</label>
+          <input id="inp-small-blind" type="number" inputmode="decimal" min="0.01" step="0.25" placeholder="0.25">
+        </div>
+        <div class="control-row">
+          <label>Big Blind ($)</label>
+          <input id="inp-big-blind" type="number" inputmode="decimal" min="0.01" step="0.25" placeholder="0.50">
+        </div>
+        <button class="btn-gold btn-block btn-sm" onclick="saveBlinds()">Save Blinds</button>
+      </div>
+
       <!-- Dealer -->
       <div class="section">
         <div class="section-title">Dealer</div>
@@ -749,9 +772,12 @@ function enterGame() {
     $('owner-tab-btn').style.display = '';
     $('accounts-tab-btn').style.display = '';
     $('player-tap-hint').style.display = '';
+  } else {
+    // Transfers is the last visible tab for non-owners — round its right edge
+    document.querySelector('[onclick="switchTab(\'tab-transfers\')"]').classList.add('tab-last');
   }
   refreshAll();
-  pollTimer = setInterval(refreshAll, 2500);
+  pollTimer = setInterval(refreshAll, 1000);
 }
 
 async function leaveRoom() {
@@ -821,7 +847,8 @@ function renderPlayers() {
     const isMe = p.username === username;
     const isTurn = handData && handData.action_on === p.username;
     const hp = handData ? handData.players.find(h => h.username === p.username) : null;
-    const isFolded = hp && hp.status === 'folded';
+    const notInHand = handData && handData.status !== 'settled' && !hp;
+    const isFolded = (hp && hp.status === 'folded') || notInHand;
     const isAllIn = hp && hp.status === 'all_in';
 
     let classes = 'player-row';
@@ -956,8 +983,13 @@ function renderHand() {
 
   // Owner prompt
   const opBox = $('owner-prompt-box');
-  opBox.innerHTML = handData.owner_prompt
-    ? `<div class="prompt-box owner-prompt">${handData.owner_prompt}</div>` : '';
+  if (handData.owner_prompt && isOwner) {
+    opBox.innerHTML = `<div class="prompt-box owner-prompt">${handData.owner_prompt}</div>`;
+  } else if (handData.status === 'complete') {
+    opBox.innerHTML = `<div class="prompt-box">Hand complete. Please wait while the host assigns payouts.</div>`;
+  } else {
+    opBox.innerHTML = '';
+  }
 
   // Action buttons
   const myTurn = handData.status === 'active' && handData.action_on === username;
@@ -972,7 +1004,14 @@ function renderHand() {
     $('btn-call').textContent = 'Call';
   }
 
-  $('advance-row').style.display = handData.status === 'round_complete' ? '' : 'none';
+  // Update quick bet button labels
+  const bb = roomData ? roomData.big_blind : 0.50;
+  $('qb-1x').textContent = `Raise ${formatMoney(bb)}`;
+  $('qb-2x').textContent = `Raise ${formatMoney(bb * 2)}`;
+  $('qb-4x').textContent = `Raise ${formatMoney(bb * 4)}`;
+
+  const isDealer = roomData && roomData.dealer_username === username;
+  $('advance-row').style.display = (handData.status === 'round_complete' && isDealer) ? '' : 'none';
   $('settle-row').style.display = (isOwner && handData.status === 'complete' && handData.pots.length > 0) ? '' : 'none';
 
   if (handData.status === 'settled') {
@@ -1007,6 +1046,13 @@ async function doAction(action) {
     $('raise-amount').value = '';
     await refreshAll();
   } catch (e) { toast(e.message, true); }
+}
+
+function quickBet(multiplier) {
+  const bb = roomData ? roomData.big_blind : 0.50;
+  const currentBet = handData ? handData.current_bet : 0;
+  $('raise-amount').value = (currentBet + bb * multiplier).toFixed(2);
+  doAction('raise');
 }
 
 async function advanceRound() {
@@ -1168,6 +1214,17 @@ async function setDealer() {
   } catch (e) { toast(e.message, true); }
 }
 
+async function saveBlinds() {
+  const sb = parseFloat($('inp-small-blind').value);
+  const bb = parseFloat($('inp-big-blind').value);
+  if (!sb || sb <= 0 || !bb || bb <= 0) return toast('Enter valid blind amounts', true);
+  try {
+    await api('PUT', `/rooms/${roomCode}/blinds`, { owner_username: username, small_blind: sb, big_blind: bb });
+    toast(`Blinds set: ${formatMoney(sb)} / ${formatMoney(bb)}`);
+    await refreshAll();
+  } catch (e) { toast(e.message, true); }
+}
+
 async function nextDealer() {
   try {
     const res = await api('POST', `/rooms/${roomCode}/dealer/next`);
@@ -1192,6 +1249,10 @@ function populateSelects() {
   if (tsVal) ts.value = tsVal;
 
   renderReorder(allPlayers);
+
+  // Populate blind inputs with current values
+  if (!$('inp-small-blind').value) $('inp-small-blind').value = roomData.small_blind;
+  if (!$('inp-big-blind').value) $('inp-big-blind').value = roomData.big_blind;
 }
 
 function renderReorder(players) {
